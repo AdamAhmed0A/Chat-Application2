@@ -64,6 +64,31 @@ class AuthController extends Controller
         ]);
     }
 
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'name' => 'nullable|string|max:255|unique:users,name,' . $user->id,
+            'status_message' => 'nullable|string|max:255',
+        ]);
+
+        if ($request->has('name')) {
+            $user->name = $request->name;
+        }
+
+        if ($request->has('status_message')) {
+            $user->status_message = $request->status_message;
+        }
+
+        $user->save();
+
+        return response()->json([
+            'status' => 'success',
+            'user' => $user
+        ]);
+    }
+
     public function logout(Request $request)
     {
         $request->user()->currentAccessToken()->delete();

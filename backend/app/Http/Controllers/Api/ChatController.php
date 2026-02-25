@@ -11,15 +11,38 @@ use Illuminate\Support\Facades\Storage;
 
 class ChatController extends Controller
 {
-    public function getChannels()
+    public function getChannels(Request $request)
     {
-        $channels = Channel::all();
+        $user = $request->user();
+
+        $channels = \App\Models\Channel::where('type', 'public')->get();
         if ($channels->isEmpty()) {
-            $channels = collect([Channel::factory()->create(['name' => 'general'])]);
+            $channels = collect([\App\Models\Channel::create(['name' => 'general', 'type' => 'public'])]);
         }
+
+        $savedName = 'saved_' . $user->id;
+        $savedChannel = \App\Models\Channel::firstOrCreate(
+            ['name' => $savedName],
+            ['type' => 'private']
+        );
+
+        $channelList = $channels->map(function($c) {
+            return [
+                'id' => $c->id,
+                'name' => $c->name,
+                'is_saved' => false
+            ];
+        });
+
+        $channelList->push([
+            'id' => $savedChannel->id,
+            'name' => 'Saved Messages',
+            'is_saved' => true
+        ]);
+
         return response()->json([
             'status' => 'success',
-            'channels' => $channels
+            'channels' => array_values($channelList->all())
         ]);
     }
 

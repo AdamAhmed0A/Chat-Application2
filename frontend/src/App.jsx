@@ -1,15 +1,34 @@
 import { useState, useEffect, useRef } from 'react';
+import Pusher from 'pusher-js';
+import Echo from 'laravel-echo';
 import './index.css';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Send, LogOut, Hash, User, Paperclip, X, Sparkles, Coffee, Bookmark, Settings, Bell, Shield, Paintbrush } from "lucide-react";
+import { Search, Paperclip, User, Star, Clock, Eye, Tag, Phone, CloudUpload, MessageSquare, CheckCircle, LayoutTemplate, Send, MoreVertical, Shield, Sparkles, LogOut, Loader2, Bookmark, Hash, ChevronRight, Activity, Bell, Trash2, Edit2, Smile, Forward, X, Image as ImageIcon, Gift, Check, CheckCheck } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuPortal } from "@/components/ui/dropdown-menu";
+import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import EmojiPicker from 'emoji-picker-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
+const STICKERS = [
+  'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Beaming%20Face%20with%20Smiling%20Eyes.png',
+  'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Face%20Blowing%20a%20Kiss.png',
+  'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Face%20with%20Tears%20of%20Joy.png',
+  'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Hand%20gestures/Waving%20Hand.png',
+  'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Hand%20gestures/Clapping%20Hands.png',
+  'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Red%20Heart.png'
+];
+
+// API Config
 const API_URL = 'http://localhost:8000/api';
 
 function App() {
@@ -23,30 +42,81 @@ function App() {
 
   const [authMode, setAuthMode] = useState('login');
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const [msgContent, setMsgContent] = useState('');
   const [file, setFile] = useState(null);
 
-  // Next-Gen Feature States
-  const [isNoPressure, setIsNoPressure] = useState(false);
-  const [aiTone, setAiTone] = useState('Neutral');
-  const [showAiMenu, setShowAiMenu] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearchingUsers, setIsSearchingUsers] = useState(false);
 
-  // Settings State
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState('profile');
-  const [editName, setEditName] = useState('');
-  const [editStatus, setEditStatus] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [profileStatus, setProfileStatus] = useState('');
+  const [profileAvatar, setProfileAvatar] = useState(null);
+  const [editingMsgId, setEditingMsgId] = useState(null);
+  const [editContent, setEditContent] = useState('');
+
+  const [showAiDialog, setShowAiDialog] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const [gifSearch, setGifSearch] = useState('');
+  const [gifResults, setGifResults] = useState([]);
+
+  // Anxiety Features
+  const [typingUsers, setTypingUsers] = useState({});
+  const typingTimeoutRef = useRef(null);
+  const typingCheckoutsRef = useRef({});
+
+  const [showRightSidebar, setShowRightSidebar] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
 
   const messagesEndRef = useRef(null);
+  const messagesRef = useRef([]);
+  const activeChannelRef = useRef(null);
+  const echoRef = useRef(null);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    activeChannelRef.current = activeChannel;
+  }, [activeChannel]);
+
+  useEffect(() => {
+    if (token) {
+      window.Pusher = Pusher;
+      echoRef.current = new Echo({
+        broadcaster: 'reverb',
+        key: 'cxcconqzctz4apkmlwhz',
+        wsHost: 'localhost',
+        wsPort: 8080,
+        wssPort: 8080,
+        forceTLS: false,
+        enabledTransports: ['ws', 'wss']
+      });
+    }
+
+    return () => {
+      if (echoRef.current) {
+        echoRef.current.disconnect();
+      }
+    };
+  }, [token]);
 
   const fetchWithAuth = async (endpoint, options = {}) => {
+    const currentToken = localStorage.getItem('token') || token;
     const headers = { ...options.headers };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+    if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
+    if (echoRef.current && echoRef.current.socketId()) {
+      headers['X-Socket-ID'] = echoRef.current.socketId();
     }
+
     if (!(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
       headers['Accept'] = 'application/json';
@@ -56,6 +126,12 @@ function App() {
 
     const res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
     const data = await res.json();
+    if (res.status === 401 && endpoint !== '/logout') {
+      localStorage.removeItem('token');
+      setToken('');
+      setUser(null);
+      throw new Error('Unauthorized');
+    }
     if (!res.ok) throw new Error(data.message || 'Request failed');
     return data;
   };
@@ -66,8 +142,6 @@ function App() {
       fetchWithAuth('/me')
         .then(data => {
           setUser(data.user);
-          setEditName(data.user.name || '');
-          setEditStatus(data.user.status_message || '');
         })
         .catch(() => handleLogout());
     } else {
@@ -76,38 +150,124 @@ function App() {
     }
   }, [token]);
 
+  // Global presence and UserStatusChanged
   useEffect(() => {
-    if (user) {
-      loadChannels();
-    }
+    if (!user || !echoRef.current) return;
+
+    // Listen to global status updates
+    const globalChannel = echoRef.current.channel('global-events');
+    globalChannel.listen('UserStatusChanged', (e) => {
+      setChannels(prev => prev.map(c => {
+        if (c.other_user_id === e.userId) {
+          return {
+            ...c,
+            is_online: e.status === 'online',
+            last_seen: e.status === 'idle' ? 'Idle' : (e.status === 'online' ? 'Online' : 'Recently')
+          };
+        }
+        return c;
+      }));
+    });
+
+    // Detect own idle state
+    let idleTimeout;
+    const resetIdle = () => {
+      clearTimeout(idleTimeout);
+      setUser(prev => {
+        if (prev?.presence_status === 'idle') {
+          fetchWithAuth('/me/presence', { method: 'PUT', body: JSON.stringify({ presence_status: 'online' }) }).catch(() => { });
+          return { ...prev, presence_status: 'online' };
+        }
+        return prev;
+      });
+      idleTimeout = setTimeout(() => {
+        fetchWithAuth('/me/presence', { method: 'PUT', body: JSON.stringify({ presence_status: 'idle' }) })
+          .then(() => setUser(prev => ({ ...prev, presence_status: 'idle' })))
+          .catch(() => { });
+      }, 5 * 60 * 1000); // 5 minutes
+    };
+
+    window.addEventListener('mousemove', resetIdle);
+    window.addEventListener('keydown', resetIdle);
+    resetIdle();
+
+    return () => {
+      window.removeEventListener('mousemove', resetIdle);
+      window.removeEventListener('keydown', resetIdle);
+      clearTimeout(idleTimeout);
+      echoRef.current.leave('global-events');
+    };
+  }, [user, token]);
+
+  useEffect(() => {
+    if (user) loadChannels();
   }, [user]);
 
-  const handleUpdateProfile = async () => {
-    try {
-      const resp = await fetchWithAuth('/me', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: editName,
-          status_message: editStatus,
-        })
+
+  useEffect(() => {
+    if (activeChannel && echoRef.current) {
+      const channel = echoRef.current.channel(`channel.${activeChannel.id}`);
+
+      channel.listen('MessageEvent', (e) => {
+        const { type, message } = e;
+
+        if (type === 'typing') {
+          setTypingUsers(prev => ({
+            ...prev,
+            [activeChannel.id]: {
+              ...prev[activeChannel.id],
+              [message.user.id]: message.user.name
+            }
+          }));
+          if (typingCheckoutsRef.current[message.user.id]) {
+            clearTimeout(typingCheckoutsRef.current[message.user.id]);
+          }
+          typingCheckoutsRef.current[message.user.id] = setTimeout(() => {
+            setTypingUsers(prev => {
+              const newT = { ...prev };
+              if (newT[activeChannel.id]) {
+                delete newT[activeChannel.id][message.user.id];
+              }
+              return newT;
+            });
+          }, 3000);
+          return;
+        }
+
+        setMessages(prev => {
+          if (type === 'new') {
+            if (activeChannel.id === message.channel_id) {
+              fetchWithAuth(`/channels/${activeChannel.id}/read`, { method: 'POST' }).catch(() => { });
+            }
+            if (prev.some(m => m.id === message.id)) return prev;
+            return [...prev, message];
+          }
+          else if (type === 'updated' || type === 'reacted') {
+            return prev.map(m => m.id === message.id ? message : m);
+          }
+          else if (type === 'deleted') {
+            return prev.filter(m => m.id !== message.id);
+          }
+          return prev;
+        });
       });
-      setUser(resp.user);
-      setIsSettingsOpen(false);
-    } catch (e) {
-      console.error('Failed to update profile', e);
+
+      return () => {
+        channel.stopListening('MessageEvent');
+        echoRef.current.leave(`channel.${activeChannel.id}`);
+      };
     }
-  };
+  }, [activeChannel, token]);
 
   useEffect(() => {
     if (activeChannel) {
       setMessages([]);
       setIsLoading(true);
-      loadMessages().then(() => setIsLoading(false));
-      const interval = setInterval(loadMessages, 3000); // Polling every 3s
-      return () => clearInterval(interval);
+      setShowRightSidebar(false); // Reset sidebar on channel change
+      loadMessages(true).then(() => {
+        setIsLoading(false);
+        fetchWithAuth(`/channels/${activeChannel.id}/read`, { method: 'POST' }).catch(() => { });
+      });
     }
   }, [activeChannel]);
 
@@ -115,31 +275,57 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    const fetchGifs = async () => {
+      try {
+        const url = gifSearch
+          ? `https://g.tenor.com/v1/search?q=${gifSearch}&key=LIVDSRZULELA&limit=12`
+          : `https://g.tenor.com/v1/trending?key=LIVDSRZULELA&limit=12`;
+        const res = await fetch(url);
+        const data = await res.json();
+        setGifResults(data.results || []);
+      } catch (e) { console.error('Error fetching GIFs', e); }
+    };
+    const timeout = setTimeout(fetchGifs, 500);
+    return () => clearTimeout(timeout);
+  }, [gifSearch]);
+
   const loadChannels = async () => {
     try {
       const data = await fetchWithAuth('/channels');
-      if (data.channels.length === 0) {
-        const retryData = await fetchWithAuth('/channels');
-        setChannels(retryData.channels);
-        setActiveChannel(retryData.channels[0]);
-      } else {
-        setChannels(data.channels);
-        if (!activeChannel) setActiveChannel(data.channels[0]);
-      }
+      setChannels(data.channels);
     } catch (e) {
-      console.error('Failed to load channels', e);
+      console.error('Load channels failed', e);
     }
   };
 
-  const loadMessages = async () => {
-    if (!activeChannel) return;
+  const loadMessages = async (forceFull = false) => {
+    const channel = activeChannelRef.current;
+    if (!channel) return;
     try {
-      const data = await fetchWithAuth(`/channels/${activeChannel.id}/messages`);
+      const currentMessages = messagesRef.current;
+      let realLastId = 0;
+      if (!forceFull && currentMessages.length > 0) {
+        for (let i = currentMessages.length - 1; i >= 0; i--) {
+          if (typeof currentMessages[i].id === 'number' && currentMessages[i].id < 1000000000000) {
+            realLastId = currentMessages[i].id;
+            break;
+          }
+        }
+      }
+
+      const url = realLastId ? `/channels/${channel.id}/messages?last_id=${realLastId}` : `/channels/${channel.id}/messages`;
+      const data = await fetchWithAuth(url);
       if (data.status === 'success') {
-        const sorted = data.messages.sort((a, b) => a.id - b.id);
-        const didChange = JSON.stringify(messages) !== JSON.stringify(sorted);
-        if (didChange || messages.length === 0) {
-          setMessages(sorted);
+        if (data.messages.length > 0 || forceFull) {
+          setMessages(prev => {
+            if (forceFull) return data.messages.sort((a, b) => a.id - b.id);
+            const newMessages = [...prev];
+            data.messages.forEach(m => {
+              if (!newMessages.find(nm => nm.id === m.id)) newMessages.push(m);
+            });
+            return newMessages.sort((a, b) => a.id - b.id);
+          });
         }
       }
     } catch (e) {
@@ -147,26 +333,147 @@ function App() {
     }
   };
 
+  const handleSearchUsers = async (q) => {
+    setSearchQuery(q);
+    if (q.trim().length >= 2) {
+      setIsSearchingUsers(true);
+      try {
+        const data = await fetchWithAuth(`/users/search?q=${q}`);
+        setSearchResults(data.users || []);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsSearchingUsers(false);
+      }
+    } else {
+      setSearchResults([]);
+    }
+  };
+
+  const handleChannelClick = async (c) => {
+    setActiveChannel(c);
+    if (c.unread_count > 0) {
+      setChannels(prev => prev.map(ch => ch.id === c.id ? { ...ch, unread_count: 0 } : ch));
+      try {
+        await fetchWithAuth(`/channels/${c.id}/read`, { method: 'POST' });
+      } catch (e) { }
+    }
+  };
+
+  const startDM = async (targetUserId) => {
+    try {
+      const data = await fetchWithAuth('/channels/direct', {
+        method: 'POST',
+        body: JSON.stringify({ target_user_id: targetUserId })
+      });
+      if (data.status === 'success') {
+        setSearchQuery('');
+        setSearchResults([]);
+        if (!channels.some(c => c.id === data.channel.id)) {
+          setChannels(prev => [data.channel, ...prev]);
+        }
+        handleChannelClick(data.channel);
+        toast.success(`Started conversation with ${data.channel.name}`);
+      }
+    } catch (e) {
+      toast.error('Failed to start conversation');
+    }
+  };
+
+  const handleAiGenerate = async (e) => {
+    e.preventDefault();
+    if (!aiPrompt.trim()) return;
+    setIsGenerating(true);
+    try {
+      const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
+      const systemInstruction = `You are a professional message composer. The user will describe what they want to say to someone, and you must write a clear, natural, well-phrased message that they can send. Only output the message text itself — no explanations, no quotes, no labels. Write it as if you are the user speaking directly.`;
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemInstruction }] },
+            contents: [{ parts: [{ text: aiPrompt }] }]
+          })
+        }
+      );
+
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error?.message?.includes('Quota exceeded')) {
+          throw new Error('You are sending messages too quickly (Rate limit hit). Please wait a few seconds and try again.');
+        }
+        throw new Error(data.error?.message || 'Gemini API error');
+      }
+
+      const generated = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (generated) {
+        setMsgContent(generated);
+        setShowAiDialog(false);
+        setAiPrompt('');
+        toast.success('AI drafted a message. Review and send when ready!');
+      } else {
+        toast.error('AI returned an empty response.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Error contacting AI assistant.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    try {
+      const formData = new FormData();
+      if (profileName) formData.append('name', profileName);
+      if (profileStatus) formData.append('status_message', profileStatus);
+      if (profileAvatar) formData.append('avatar', profileAvatar);
+
+      const data = await fetchWithAuth('/me', { method: 'POST', body: formData });
+      setUser(data.user);
+      setShowSettings(false);
+      toast.success('Profile updated successfully!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to update profile');
+    }
+  };
+
+  const openSettings = () => {
+    setProfileName(user.name || '');
+    setProfileStatus(user.status_message || '');
+    setProfileAvatar(null);
+    setShowSettings(true);
+  };
+
   const handleAuth = async (e) => {
     e.preventDefault();
     setError('');
     try {
       const endpoint = authMode === 'login' ? '/login' : '/register';
+      const bodyPayload = authMode === 'login'
+        ? { email, password }
+        : { name: username, email, password };
+
       const res = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ name: username, password })
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(bodyPayload)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Auth failed');
-
+      localStorage.setItem('token', data.token);
       setToken(data.token);
       setUser(data.user);
+      toast.success(authMode === 'login' ? 'Logged in successfully!' : 'Account created!');
     } catch (err) {
       setError(err.message);
+      toast.error(err.message || 'Authentication failed');
     }
   };
 
@@ -176,462 +483,649 @@ function App() {
     }
     setToken('');
     setUser(null);
+    setAuthMode('login');
+    toast.info('Logged out successfully');
   };
 
-  const sendMessage = async (e) => {
-    e.preventDefault();
-    if (!msgContent.trim() && !file) return;
+  const handleTyping = (val) => {
+    setMsgContent(val);
+    if (!typingTimeoutRef.current && activeChannelRef.current) {
+      fetchWithAuth(`/channels/${activeChannelRef.current.id}/typing`, { method: 'POST' }).catch(() => { });
+      typingTimeoutRef.current = setTimeout(() => {
+        typingTimeoutRef.current = null;
+      }, 2000);
+    }
+  };
+
+  const sendMessage = async (e, directContent = null) => {
+    if (e) e.preventDefault();
+    const targetContent = directContent !== null ? directContent : msgContent;
+    const targetFile = directContent !== null ? null : file;
+
+    if (!targetContent.trim() && !targetFile) return;
+
+    const currentChannel = activeChannelRef.current;
+    let finalContent = targetContent.trim();
+
+    const tempId = Date.now();
+    const tempMessage = {
+      id: tempId,
+      user: user,
+      content: finalContent,
+      created_at: new Date().toISOString(),
+      attachments: targetFile ? [{ id: tempId, file_path: '', file_type: targetFile.type || 'file', __name: targetFile.name }] : []
+    };
+
+    setMessages(prev => [...prev, tempMessage]);
+    if (directContent === null) {
+      setMsgContent('');
+      setFile(null);
+    }
+    const currentFile = targetFile;
 
     try {
       const formData = new FormData();
-
-      let finalContent = msgContent.trim();
-
-      // Simulated Next-Gen Feature Parsing
-      if (aiTone !== 'Neutral' && finalContent) {
-        finalContent = `[AI ${aiTone}] ${finalContent}`;
-      }
-      if (isNoPressure) {
-        finalContent = `🌿 (No Rush) ${finalContent}`;
-      }
-
       if (finalContent) formData.append('content', finalContent);
-      if (file) formData.append('file', file);
+      if (currentFile) formData.append('file', currentFile);
 
-      await fetchWithAuth(`/channels/${activeChannel.id}/messages`, {
-        method: 'POST',
-        body: formData
+      const data = await fetchWithAuth(`/channels/${currentChannel.id}/messages`, { method: 'POST', body: formData });
+
+      setMessages(prev => {
+        const newMessages = [...prev];
+        const tempIndex = newMessages.findIndex(m => m.id === tempId);
+        if (tempIndex !== -1) {
+          const alreadyHasReal = newMessages.some(m => m.id === data.message.id);
+          if (alreadyHasReal) {
+            newMessages.splice(tempIndex, 1);
+          } else {
+            newMessages[tempIndex] = data.message;
+          }
+        } else if (!newMessages.some(m => m.id === data.message.id)) {
+          newMessages.push(data.message);
+        }
+        return newMessages;
       });
-      setMsgContent('');
-      setFile(null);
-      setIsNoPressure(false);
-      setAiTone('Neutral');
-      loadMessages();
     } catch (e) {
       console.error('Send failed', e);
+      setMessages(prev => prev.filter(m => m.id !== tempId));
     }
   };
 
   if (!user || !token) {
     return (
-      <div className="auth-overlay bg-black relative flex w-full h-full items-center justify-center overflow-hidden">
-        {/* Animated Radial Background Gradients for depth */}
-        <div className="absolute top-1/4 left-1/4 w-[40rem] h-[40rem] bg-violet-600/20 blur-[140px] rounded-full pointer-events-none mix-blend-screen" />
-        <div className="absolute bottom-1/4 right-1/4 w-[40rem] h-[40rem] bg-cyan-600/15 blur-[120px] rounded-full pointer-events-none mix-blend-screen" />
+      <>
+        <Toaster position="top-center" richColors />
 
-        <Card className="w-full max-w-md bg-zinc-950/70 backdrop-blur-2xl border-white/10 shadow-[0_8px_40px_rgba(0,0,0,0.8)] z-10 mx-4">
-          <CardHeader className="text-center pb-6 pt-8">
-            <div className="mx-auto bg-violet-500/10 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-inner relative border border-white/5">
-              <Hash className="w-8 h-8 text-violet-400 opacity-90" />
-              <div className="absolute inset-0 bg-violet-500/20 blur-xl rounded-full" />
-            </div>
-            <CardTitle className="brand-font text-4xl font-extrabold pb-1 bg-gradient-to-br from-white via-zinc-200 to-zinc-500 bg-clip-text text-transparent">Nexus Hub</CardTitle>
-            <CardDescription className="text-zinc-400/90 font-medium text-[15px] mt-2">Step into seamless collaboration.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="login" className="w-full" onValueChange={(v) => { setAuthMode(v); setError(''); }}>
-              <TabsList className="grid w-full grid-cols-2 mb-6 bg-zinc-900/50 p-1 border border-white/5">
-                <TabsTrigger value="login" className="data-[state=active]:bg-violet-600 data-[state=active]:text-white text-zinc-400 transition-all font-semibold tracking-wide">LOGIN</TabsTrigger>
-                <TabsTrigger value="register" className="data-[state=active]:bg-violet-600 data-[state=active]:text-white text-zinc-400 transition-all font-semibold tracking-wide">REGISTER</TabsTrigger>
-              </TabsList>
+        {/* Animated Background */}
+        <div className="fixed inset-0 bg-[#0a0a0e] overflow-hidden pointer-events-none">
+          <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-pink-500/10 blur-[150px] rounded-full mix-blend-screen animate-pulse" style={{ animationDuration: '4s' }}></div>
+          <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-purple-500/10 blur-[150px] rounded-full mix-blend-screen animate-pulse" style={{ animationDuration: '6s' }}></div>
+          <div className="bg-wallpaper absolute inset-0 opacity-10 bg-cover bg-center mix-blend-screen"></div>
+        </div>
 
-              {error && (
-                <div className="danger-text bg-red-500/10 text-red-500 text-sm p-3 rounded-md mb-6 border border-red-500/20 text-center font-medium shadow-sm">
-                  {error}
+        <div className="w-full h-full relative flex items-center justify-center min-h-[100vh] p-4 sm:p-8">
+          <div className="flex flex-col lg:flex-row w-full max-w-5xl bg-[#121218]/80 border border-white/5 shadow-[0_0_80px_rgba(0,0,0,0.8)] z-10 rounded-[32px] overflow-hidden text-white backdrop-blur-3xl animate-in zoom-in-95 duration-500">
+
+            {/* Left side: Branding / Visual */}
+            <div className="hidden lg:flex flex-col justify-between w-1/2 p-12 relative overflow-hidden bg-gradient-to-br from-white/[0.03] to-transparent border-r border-white/5">
+              <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 via-purple-500/10 to-transparent"></div>
+              <div className="absolute -left-10 -top-10 w-40 h-40 bg-pink-500/30 blur-[80px] rounded-full"></div>
+
+              <div className="relative z-10">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-pink-500 to-purple-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
+                    <MessageSquare className="w-6 h-6 text-white" />
+                  </div>
+                  <h1 className="brand-font text-3xl font-black text-white tracking-tight">NexusHub</h1>
                 </div>
-              )}
+                <h2 className="text-5xl font-black leading-tight mt-16 bg-clip-text text-transparent bg-gradient-to-br from-white via-zinc-200 to-zinc-500">
+                  Connect.<br />Collaborate.<br />Create.
+                </h2>
+                <p className="text-zinc-400 mt-6 text-base max-w-sm leading-relaxed font-medium">
+                  Join a future-proof workspace designed for modern dynamic teams. Experience real-time communication that feels simply magical.
+                </p>
+              </div>
 
-              <TabsContent value="login" className="mt-0 outline-none">
-                <form className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300" onSubmit={handleAuth}>
-                  <div className="space-y-2.5">
-                    <Label className="text-zinc-300 font-semibold px-0.5 text-sm tracking-wide">Username Handle</Label>
-                    <Input
-                      type="text"
-                      placeholder="@username"
-                      value={username}
-                      className="bg-black/40 border-zinc-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500/50 transition-all h-12 text-[15px] shadow-inner text-zinc-100 placeholder:text-zinc-600 px-4 rounded-xl"
-                      onChange={e => setUsername(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2.5">
-                    <Label className="text-zinc-300 font-semibold px-0.5 text-sm tracking-wide">Secure Password</Label>
-                    <Input
-                      type="password"
-                      placeholder="••••••••"
-                      value={password}
-                      className="bg-black/40 border-zinc-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500/50 transition-all h-12 text-[15px] shadow-inner text-zinc-100 placeholder:text-zinc-600 px-4 rounded-xl"
-                      onChange={e => setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="pt-4 pb-2">
-                    <Button type="submit" className="w-full bg-violet-600 hover:bg-violet-500 text-white font-bold h-12 shadow-[0_0_20px_rgba(139,92,246,0.3)] hover:shadow-[0_0_25px_rgba(139,92,246,0.5)] transition-all outline-none rounded-xl text-[15px]">
-                      Access Hub
-                    </Button>
-                  </div>
-                </form>
-              </TabsContent>
+              <div className="relative z-10 flex items-center gap-4 border border-white/10 bg-black/30 p-4 rounded-2xl backdrop-blur-md mt-16 shadow-xl">
+                <div className="flex -space-x-3">
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} className={`w-10 h-10 rounded-full border-2 border-[#121218] bg-gradient-to-br ${i % 2 === 0 ? 'from-pink-500 to-purple-500' : 'from-indigo-500 to-cyan-500'} flex items-center justify-center shadow-sm`}>
+                      <User className="w-4 h-4 text-white/50" />
+                    </div>
+                  ))}
+                </div>
+                <div className="text-sm font-semibold text-zinc-300">
+                  Join <span className="text-white font-bold bg-clip-text text-transparent bg-gradient-to-r from-pink-400 to-purple-400">10,000+</span> creators
+                </div>
+              </div>
+            </div>
 
-              <TabsContent value="register" className="mt-0 outline-none">
-                <form className="space-y-6 animate-in slide-in-from-left-4 fade-in duration-300" onSubmit={handleAuth}>
-                  <div className="space-y-2.5">
-                    <Label className="text-zinc-300 font-semibold px-0.5 text-sm tracking-wide">Choose a Username</Label>
-                    <Input
-                      type="text"
-                      placeholder="e.g. creative_mind"
-                      value={username}
-                      className="bg-black/40 border-zinc-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 transition-all h-12 text-[15px] shadow-inner text-zinc-100 placeholder:text-zinc-600 px-4 rounded-xl"
-                      onChange={e => setUsername(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2.5">
-                    <Label className="text-zinc-300 font-semibold px-0.5 text-sm tracking-wide">Create a Password</Label>
-                    <Input
-                      type="password"
-                      placeholder="Min. 6 characters"
-                      value={password}
-                      className="bg-black/40 border-zinc-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 transition-all h-12 text-[15px] shadow-inner text-zinc-100 placeholder:text-zinc-600 px-4 rounded-xl"
-                      onChange={e => setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="pt-4 pb-2">
-                    <Button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold h-12 shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:shadow-[0_0_25px_rgba(6,182,212,0.5)] transition-all outline-none rounded-xl text-[15px]">
-                      Create Account
-                    </Button>
-                  </div>
-                </form>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
+            {/* Right side: Login/Register Form */}
+            <div className="w-full lg:w-1/2 p-8 sm:p-12 flex flex-col justify-center relative bg-[#0d0d12]/50">
+              <div className="absolute top-1/2 right-[-20%] -translate-y-1/2 w-64 h-64 bg-purple-500/10 blur-[100px] rounded-full pointer-events-none"></div>
+
+              <div className="w-full max-w-sm mx-auto relative z-10">
+                <div className="text-center lg:text-left mb-8">
+                  <h3 className="text-3xl font-black text-white mb-2 tracking-tight">Welcome</h3>
+                  <p className="text-zinc-400 text-sm font-medium">Enter your details to access the workspace.</p>
+                </div>
+
+                <Tabs value={authMode} className="w-full" onValueChange={(v) => { setAuthMode(v); setError(''); }}>
+                  <TabsList className="grid w-full grid-cols-2 mb-8 bg-black/40 p-1.5 rounded-2xl border border-white/5 shadow-inner">
+                    <TabsTrigger value="login" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-pink-500 data-[state=active]:to-purple-500 rounded-xl text-zinc-400 data-[state=active]:text-white font-bold h-11 transition-all text-sm tracking-wide">LOGIN</TabsTrigger>
+                    <TabsTrigger value="register" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-pink-500 data-[state=active]:to-purple-500 rounded-xl text-zinc-400 data-[state=active]:text-white font-bold h-11 transition-all text-sm tracking-wide">REGISTER</TabsTrigger>
+                  </TabsList>
+
+                  {error && <div className="bg-red-500/10 text-red-400 text-sm p-4 rounded-2xl mb-6 border border-red-500/20 text-center font-medium shadow-sm animate-in fade-in">{error}</div>}
+
+                  <TabsContent value="login" className="mt-0 outline-none animate-in slide-in-from-left-4 fade-in duration-300">
+                    <form className="space-y-5" onSubmit={handleAuth}>
+                      <div className="space-y-2 group">
+                        <Label className="text-zinc-400 px-1 text-[11px] uppercase tracking-wider font-bold group-focus-within:text-purple-400 transition-colors">Email Address</Label>
+                        <Input type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required className="pl-4 bg-black/40 border-white/5 focus-visible:border-purple-500 focus-visible:ring-1 focus-visible:ring-purple-500 h-14 text-[15px] text-white rounded-2xl transition-all placeholder:text-zinc-600 shadow-inner" />
+                      </div>
+                      <div className="space-y-2 group">
+                        <div className="flex items-center justify-between px-1">
+                          <Label className="text-zinc-400 text-[11px] uppercase tracking-wider font-bold group-focus-within:text-purple-400 transition-colors">Password</Label>
+                        </div>
+                        <Input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required className="pl-4 bg-black/40 border-white/5 focus-visible:border-purple-500 focus-visible:ring-1 focus-visible:ring-purple-500 h-14 text-[15px] text-white rounded-2xl transition-all placeholder:text-zinc-600 shadow-inner" />
+                      </div>
+                      <div className="pt-4">
+                        <Button type="submit" className="w-full bg-white hover:bg-zinc-200 text-black font-bold h-14 rounded-2xl text-[15px] transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)] hover:-translate-y-0.5 active:translate-y-0 duration-200">Access Workspace</Button>
+                      </div>
+                    </form>
+                  </TabsContent>
+
+                  <TabsContent value="register" className="mt-0 outline-none animate-in slide-in-from-right-4 fade-in duration-300">
+                    <form className="space-y-5" onSubmit={handleAuth}>
+                      <div className="space-y-2 group">
+                        <Label className="text-zinc-400 px-1 text-[11px] uppercase tracking-wider font-bold group-focus-within:text-pink-400 transition-colors">Username</Label>
+                        <Input type="text" placeholder="e.g. creative" value={username} onChange={e => setUsername(e.target.value)} required className="pl-4 bg-black/40 border-white/5 focus-visible:border-pink-500 focus-visible:ring-1 focus-visible:ring-pink-500 h-14 text-[15px] text-white rounded-2xl transition-all placeholder:text-zinc-600 shadow-inner" />
+                      </div>
+                      <div className="space-y-2 group">
+                        <Label className="text-zinc-400 px-1 text-[11px] uppercase tracking-wider font-bold group-focus-within:text-pink-400 transition-colors">Email Address</Label>
+                        <Input type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required className="pl-4 bg-black/40 border-white/5 focus-visible:border-pink-500 focus-visible:ring-1 focus-visible:ring-pink-500 h-14 text-[15px] text-white rounded-2xl transition-all placeholder:text-zinc-600 shadow-inner" />
+                      </div>
+                      <div className="space-y-2 group">
+                        <Label className="text-zinc-400 px-1 text-[11px] uppercase tracking-wider font-bold group-focus-within:text-pink-400 transition-colors">Secure Password</Label>
+                        <Input type="password" placeholder="Min. 8 characters" value={password} onChange={e => setPassword(e.target.value)} required className="pl-4 bg-black/40 border-white/5 focus-visible:border-pink-500 focus-visible:ring-1 focus-visible:ring-pink-500 h-14 text-[15px] text-white rounded-2xl transition-all placeholder:text-zinc-600 shadow-inner" />
+                      </div>
+                      <div className="pt-4">
+                        <Button type="submit" className="w-full bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-400 hover:to-purple-400 text-white font-bold h-14 rounded-2xl text-[15px] shadow-[0_0_20px_rgba(236,72,153,0.3)] hover:shadow-[0_0_30px_rgba(236,72,153,0.5)] hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200">Create Account</Button>
+                      </div>
+                    </form>
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
     );
   }
 
+  // Extract all media attachments from current channel messages
+  const allImages = messages.flatMap(m => m.attachments || []).filter(a => a.file_type && a.file_type.startsWith('image/'));
+  const allFiles = messages.flatMap(m => m.attachments || []).filter(a => !(a.file_type && a.file_type.startsWith('image/')));
+
+  // Determine active profile for right sidebar
+  const rightProfileName = activeChannel?.is_saved ? 'ME' : (activeChannel?.name || 'User');
+
+  let isOnline = false;
+  let rightProfileStatus = 'Collaborative Space';
+  if (activeChannel?.is_saved) {
+    isOnline = true;
+    rightProfileStatus = 'Just You';
+  } else if (activeChannel?.is_dm) {
+    isOnline = !!(activeChannel.is_online || activeChannel.last_seen?.includes('second') || activeChannel.last_seen?.includes('just') || activeChannel.last_seen === 'Online');
+    rightProfileStatus = isOnline ? 'Active Now' : `Last seen ${activeChannel.last_seen || 'recently'}`;
+  }
+
+  const rightProfileAvatar = activeChannel?.is_saved ? (user?.avatar ? `http://localhost:8000${user.avatar}` : null) : (activeChannel?.avatar ? `http://localhost:8000${activeChannel.avatar}` : null);
+
   return (
-    <div className="app-container flex h-screen max-w-[1600px] mx-auto p-4 gap-4 box-border">
-      {/* Sidebar Navigation */}
-      <aside className="sidebar glass-panel w-72 flex flex-col rounded-[24px] overflow-hidden relative border border-white/5">
-        <div className="sidebar-header brand-title p-6 border-b border-white/5 bg-black/20 flex items-center gap-2">
-          <span className="brand-dot w-2 h-2 rounded-full bg-violet-500 shadow-[0_0_10px_rgba(139,92,246,0.6)]"></span>
-          <span className="font-bold text-xl text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400">Nexus</span>
-          <span className="font-light text-xl text-zinc-500">Hub</span>
-        </div>
+    <>
+      <Toaster position="top-right" richColors />
+      <div className="bg-wallpaper"></div>
 
-        <div className="user-profile-badge p-6 border-b border-white/5 flex items-center gap-3">
-          <div className="relative">
-            <Avatar className="h-11 w-11 shadow-lg border-2 border-zinc-800">
-              <AvatarFallback className="bg-gradient-to-br from-violet-500 to-pink-500 text-white font-semibold flex items-center justify-center pt-1">
-                {user.name.charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-zinc-900 rounded-full"></div>
-          </div>
-          <div className="user-info flex flex-col w-[160px]">
-            <span className="font-semibold text-sm text-zinc-100 truncate">{user.name}</span>
-            <span className="text-xs text-zinc-400 flex items-center gap-1 truncate w-full" title={user.status_message || "Online"}>
-              {user.status_message || "Online"}
-            </span>
-          </div>
-        </div>
-
-        <ScrollArea className="channel-section flex-1 px-4 py-6">
-          <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3 pl-2">Me</div>
-          <ul className="space-y-1 mb-6">
-            {channels.filter(c => c.is_saved).map(c => (
-              <li
-                key={c.id}
-                className={`channel-item px-4 py-2.5 rounded-xl cursor-pointer transition-all flex items-center gap-3 font-medium text-sm
-                  ${activeChannel?.id === c.id
-                    ? 'bg-emerald-500/15 text-emerald-400 border-l-2 border-emerald-500 shadow-sm'
-                    : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100'
-                  }`}
-                onClick={() => setActiveChannel(c)}
-              >
-                <Bookmark className="w-4 h-4 opacity-70" /> {c.name}
-              </li>
-            ))}
-          </ul>
-
-          <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3 pl-2">Channels</div>
-          <ul className="space-y-1">
-            {channels.filter(c => !c.is_saved).map(c => (
-              <li
-                key={c.id}
-                className={`channel-item px-4 py-2.5 rounded-xl cursor-pointer transition-all flex items-center gap-3 font-medium text-sm
-                  ${activeChannel?.id === c.id
-                    ? 'bg-violet-500/15 text-violet-400 border-l-2 border-violet-500'
-                    : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100'
-                  }`}
-                onClick={() => setActiveChannel(c)}
-              >
-                <Hash className="w-4 h-4 opacity-70" /> {c.name}
-              </li>
-            ))}
-          </ul>
-        </ScrollArea>
-
-        <div className="sidebar-footer p-4 border-t border-white/5 bg-black/20 flex flex-col gap-2">
-
-          <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+      <div className="app-container">
+        {/* Nav Sidebar */}
+        <div className="nav-sidebar">
+          <Dialog open={showSettings} onOpenChange={setShowSettings}>
             <DialogTrigger asChild>
-              <Button variant="ghost" className="w-full justify-start text-zinc-400 hover:text-white hover:bg-white/10 gap-2">
-                <Settings className="w-4 h-4" />
-                Settings
-              </Button>
+              <Avatar className="w-10 h-10 mb-8 border border-white/10 shadow-lg cursor-pointer hover:opacity-80 transition-opacity" onClick={openSettings}>
+                <AvatarImage src={user.avatar ? `http://localhost:8000${user.avatar}` : null} className="object-cover" />
+                <AvatarFallback className="bg-zinc-800 font-bold hover:bg-zinc-700 text-white">{user.name.charAt(0).toUpperCase()}</AvatarFallback>
+              </Avatar>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-xl bg-zinc-950/95 backdrop-blur-3xl border-white/10 text-white shadow-2xl p-0 gap-0 overflow-hidden rounded-2xl">
-              <div className="flex h-[500px]">
-                {/* Settings Sidebar */}
-                <div className="w-48 bg-black/40 border-r border-white/5 p-4 flex flex-col gap-1">
-                  <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2 pl-2 mt-2">Preferences</div>
-                  <Button variant="ghost" className={`w-full justify-start gap-2 text-sm ${settingsTab === 'profile' ? 'bg-violet-500/15 text-violet-400' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`} onClick={() => setSettingsTab('profile')}>
-                    <User className="w-4 h-4" /> Profile
-                  </Button>
-                  <Button variant="ghost" className={`w-full justify-start gap-2 text-sm ${settingsTab === 'appearance' ? 'bg-violet-500/15 text-violet-400' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`} onClick={() => setSettingsTab('appearance')}>
-                    <Paintbrush className="w-4 h-4" /> Appearance
-                  </Button>
-                  <Button variant="ghost" className={`w-full justify-start gap-2 text-sm ${settingsTab === 'privacy' ? 'bg-violet-500/15 text-violet-400' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`} onClick={() => setSettingsTab('privacy')}>
-                    <Shield className="w-4 h-4" /> Privacy & Security
-                  </Button>
-                  <Button variant="ghost" className={`w-full justify-start gap-2 text-sm ${settingsTab === 'notifications' ? 'bg-violet-500/15 text-violet-400' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`} onClick={() => setSettingsTab('notifications')}>
-                    <Bell className="w-4 h-4" /> Notifications
-                  </Button>
-                </div>
-
-                {/* Settings Content Pane */}
-                <div className="flex-1 p-6 flex flex-col">
-                  {settingsTab === 'profile' && (
-                    <>
-                      <DialogHeader className="mb-6">
-                        <DialogTitle className="text-xl font-bold tracking-wide">Profile Settings</DialogTitle>
-                        <DialogDescription className="text-zinc-400">Manage your Nexus Hub account identity.</DialogDescription>
-                      </DialogHeader>
-
-                      <div className="flex-1 space-y-6">
-                        <div className="flex items-center gap-6">
-                          <Avatar className="h-20 w-20 shadow-lg border-2 border-zinc-800">
-                            <AvatarFallback className="bg-gradient-to-br from-violet-500 to-pink-500 text-white text-2xl font-bold">
-                              {user.name.charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <Button variant="outline" className="border-white/10 bg-white/5 hover:bg-white/10 text-white">Change Avatar</Button>
-                        </div>
-
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label className="text-zinc-400 text-xs uppercase tracking-wider">Display Name</Label>
-                            <Input value={editName} onChange={e => setEditName(e.target.value)} className="bg-black/50 border-zinc-800 h-11 focus:border-violet-500" />
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label className="text-zinc-400 text-xs uppercase tracking-wider">Status Message</Label>
-                            <Input value={editStatus} onChange={e => setEditStatus(e.target.value)} placeholder="What's on your mind?" className="bg-black/50 border-zinc-800 h-11 focus:border-violet-500" />
-                          </div>
-
-                          <div className="pt-4 flex justify-end">
-                            <Button className="bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/25 px-8 transition-all" onClick={handleUpdateProfile} disabled={!editName.trim()}>Save Changes</Button>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                  {settingsTab !== 'profile' && (
-                    <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 h-full">
-                      <Sparkles className="w-12 h-12 mb-4 opacity-20" />
-                      <p className="font-medium text-[15px]">Coming Soon</p>
-                      <p className="text-sm opacity-60 max-w-[200px] text-center mt-2">These settings are being crafted for the next major release.</p>
+            <DialogContent className="bg-[#16161a] border-white/10 text-white sm:max-w-[460px] rounded-2xl shadow-2xl overflow-hidden p-0 gap-0 focus:outline-none">
+              <div className="relative h-28 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-90 shadow-inner" />
+              <div className="px-8 pb-8 relative -mt-12 flex flex-col items-center">
+                <DialogHeader className="mb-6 flex flex-col items-center w-full text-center">
+                  <div className="w-24 h-24 rounded-full border-4 border-[#16161a] bg-zinc-900 overflow-hidden shadow-2xl mb-4 flex items-center justify-center relative group text-zinc-400 hover:text-white transition-colors">
+                    {profileAvatar ? <img src={URL.createObjectURL(profileAvatar)} className="w-full h-full object-cover" /> : user?.avatar ? <img src={`http://localhost:8000${user.avatar}`} className="w-full h-full object-cover" /> : <User className="w-10 h-10" />}
+                    <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 backdrop-blur-sm transition-all duration-300">
+                      <CloudUpload className="w-6 h-6 mb-1 text-white animate-bounce" />
+                      <span className="text-[10px] font-bold text-white tracking-widest">UPLOAD</span>
                     </div>
-                  )}
-                </div>
+                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={e => setProfileAvatar(e.target.files[0])} />
+                  </div>
+                  <DialogTitle className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-zinc-400 mb-1">Profile Settings</DialogTitle>
+                  <DialogDescription className="text-zinc-500 text-sm">Personalize how others see you in the workspace.</DialogDescription>
+                </DialogHeader>
+
+                <form onSubmit={handleSaveProfile} className="space-y-6 w-full">
+                  <div className="space-y-2 focus-within:text-purple-400 text-zinc-400 transition-colors">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-inherit flex items-center gap-2"><User className="w-3.5 h-3.5" /> Display Name</Label>
+                    <Input value={profileName} onChange={e => setProfileName(e.target.value)} className="bg-[#1e1e24] border-white/5 text-white h-12 px-4 rounded-xl focus-visible:ring-1 focus-visible:ring-purple-500 focus-visible:border-purple-500 transition-all font-medium placeholder:text-zinc-600" placeholder="Your name" />
+                  </div>
+                  <div className="space-y-2 focus-within:text-pink-400 text-zinc-400 transition-colors">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-inherit flex items-center gap-2"><MessageSquare className="w-3.5 h-3.5" /> Status Message</Label>
+                    <Input value={profileStatus} onChange={e => setProfileStatus(e.target.value)} className="bg-[#1e1e24] border-white/5 text-white h-12 px-4 rounded-xl focus-visible:ring-1 focus-visible:ring-pink-500 focus-visible:border-pink-500 transition-all text-sm placeholder:text-zinc-600" placeholder="What's on your mind?" />
+                  </div>
+                  <Button type="submit" className="w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-400 hover:via-purple-400 hover:to-pink-400 text-white font-bold h-12 rounded-xl border-none shadow-[0_0_20px_rgba(168,85,247,0.4)] transition-all hover:shadow-[0_0_30px_rgba(168,85,247,0.6)] mt-4 flex items-center justify-center gap-2 group">
+                    <Sparkles className="w-4 h-4 group-hover:animate-pulse" /> Save Changes
+                  </Button>
+                </form>
               </div>
             </DialogContent>
           </Dialog>
 
-          <Button variant="ghost" className="w-full justify-start text-zinc-400 hover:text-red-400 hover:bg-red-400/10 gap-2" onClick={handleLogout}>
-            <LogOut className="w-4 h-4" />
-            Logout
-          </Button>
-        </div>
-      </aside>
+          <div className="flex-1 flex flex-col gap-2 w-full px-2">
+            <div className="nav-item"><LayoutTemplate className="w-5 h-5" /></div>
+            <div className="nav-item active text-white bg-white/5 rounded-[14px] shadow-sm"><MessageSquare className="w-5 h-5" /></div>
+            <div className="nav-item"><CheckCircle className="w-5 h-5" /></div>
+            <div className="nav-item"><Star className="w-5 h-5" /></div>
+            <div className="nav-item"><Tag className="w-5 h-5" /></div>
+          </div>
 
-      {/* Main Communication Arena */}
-      <main className="main-arena glass-panel flex-1 flex flex-col rounded-[24px] overflow-hidden border border-white/5 relative">
-        <header className="channel-header p-5 px-8 border-b border-white/5 bg-black/30 flex items-center justify-between">
-          <div>
-            <h2 className="brand-font text-xl font-semibold flex items-center gap-2 m-0 text-zinc-100">
-              {activeChannel?.is_saved ? <Bookmark className="text-emerald-500 opacity-80 w-5 h-5" /> : <Hash className="text-violet-500 opacity-80 w-5 h-5" />}
-              {activeChannel?.name || 'loading...'}
-            </h2>
-            <div className="text-sm text-zinc-400 mt-1">
-              {activeChannel?.is_saved ? 'Your private space for notes and files.' : `Team communication for ${activeChannel?.name}`}
+          <div className="nav-item mt-auto"><CloudUpload className="w-5 h-5" /></div>
+          <div className="nav-item text-red-400 hover:text-red-300" onClick={handleLogout} title="Logout"><LogOut className="w-5 h-5" /></div>
+        </div>
+
+        {/* Inbox Sidebar */}
+        <div className="inbox-sidebar">
+          <div className="inbox-search">
+            <div className="search-input-wrap relative w-full">
+              <Search className="search-icon" />
+              <input type="text" className="search-input" placeholder="Search users..." value={searchQuery} onChange={e => handleSearchUsers(e.target.value)} />
+
+              {searchQuery.length >= 2 && (
+                <div className="absolute top-12 flex flex-col left-0 right-0 bg-[#16161e] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden">
+                  <ScrollArea className="max-h-[250px] flex-1">
+                    {isSearchingUsers ? (
+                      <div className="p-4 text-center text-zinc-400 text-sm">Searching...</div>
+                    ) : searchResults.length === 0 ? (
+                      <div className="p-4 text-center text-zinc-400 text-sm">No users found</div>
+                    ) : (
+                      searchResults.map(u => (
+                        <div key={u.id} className="p-3 hover:bg-white/5 cursor-pointer flex items-center gap-3 transition-colors border-b border-white/5 last:border-0" onClick={() => startDM(u.id)}>
+                          <Avatar className="w-8 h-8">
+                            <AvatarFallback className="bg-zinc-700 text-xs text-white uppercase">{u.name.charAt(0)}</AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 overflow-hidden">
+                            <div className="font-medium text-white text-[13px] truncate">{u.name}</div>
+                            {u.status_message && <div className="text-[11px] text-zinc-500 truncate">{u.status_message}</div>}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </ScrollArea>
+                </div>
+              )}
             </div>
           </div>
-        </header>
 
-        <ScrollArea className="flex-1 p-6 relative">
-          <div className="flex flex-col gap-6 w-full max-w-5xl mx-auto pb-4">
-            {isLoading ? (
-              <div className="empty-state flex flex-col items-center justify-center py-20 text-zinc-500">
-                Loading messages...
-              </div>
-            ) : messages.length === 0 ? (
-              <div className="empty-state flex flex-col items-center justify-center py-20 text-zinc-500">
-                {activeChannel?.is_saved ? <Bookmark className="w-12 h-12 opacity-20 mb-4" /> : <Hash className="w-12 h-12 opacity-20 mb-4" />}
-                <p>{activeChannel?.is_saved ? "Send messages to yourself to save them for later." : `Welcome to #${activeChannel?.name}. Start the conversation!`}</p>
-              </div>
-            ) : (
-              messages.map(msg => {
-                const isOwn = msg.user?.id === user.id;
+          <ScrollArea className="flex-1 px-2 pb-4">
+            <div className="space-y-1">
+              {channels.filter(c => c.name.toLowerCase() !== 'general').map(c => {
+                const isActive = activeChannel?.id === c.id;
+                const dateRaw = c.last_message?.created_at || c.created_at;
+
+                let timeString = '';
+                if (dateRaw) {
+                  const d = new Date(dateRaw);
+                  if (!isNaN(d.getTime())) {
+                    timeString = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  }
+                }
 
                 return (
-                  <div className={`flex gap-4 group animate-in fade-in slide-in-from-bottom-2 ${isOwn ? 'justify-end' : 'justify-start'}`} key={msg.id}>
-                    {!isOwn && (
-                      <Avatar className="h-9 w-9 mt-1 flex-shrink-0">
-                        <AvatarFallback className="bg-zinc-800 text-zinc-300 text-sm">
-                          {msg.user?.name.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                    )}
-
-                    <div className={`max-w-[75%] rounded-2xl p-4 flex flex-col gap-2 transition-all ${isOwn
-                      ? 'bg-violet-600/20 hover:bg-violet-600/30 rounded-tr-sm border border-violet-500/10'
-                      : 'bg-zinc-800/40 hover:bg-zinc-800/60 rounded-tl-sm border border-white/5'
-                      }`}
-                    >
-                      <div className={`flex items-baseline gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
-                        <span className="font-semibold text-sm text-zinc-200">{msg.user?.name}</span>
-                        <span className="text-xs text-zinc-500">
-                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-
-                      {msg.content && (
-                        <div className={`text-zinc-300 leading-relaxed text-[15px] max-w-none break-words ${isOwn ? 'text-right' : 'text-left'}`}>
-                          {msg.content}
-                        </div>
+                  <div key={c.id} className={`chat-item ${isActive ? 'active' : ''}`} onClick={() => handleChannelClick(c)}>
+                    <div className="chat-item-avatar">
+                      {c.is_saved ? (
+                        <Avatar className="w-full h-full">
+                          <AvatarImage src={user?.avatar ? `http://localhost:8000${user.avatar}` : null} className="object-cover" />
+                          <AvatarFallback className="bg-zinc-700 font-bold text-white">ME</AvatarFallback>
+                        </Avatar>
+                      ) : (
+                        <Avatar className="w-full h-full">
+                          <AvatarImage src={c.avatar ? `http://localhost:8000${c.avatar}` : null} className="object-cover" />
+                          <AvatarFallback className="bg-zinc-700 font-bold text-white">
+                            {c.is_group ? <Hash className="w-4 h-4 text-purple-400" /> : c.name?.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                       )}
-
-                      {msg.attachments && msg.attachments.length > 0 && (
-                        <div className={`flex flex-wrap gap-2 mt-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                          {msg.attachments.map(att => (
-                            <div key={att.id}>
-                              {att.file_type.startsWith('image/') ? (
-                                <a href={`http://localhost:8000${att.file_path}`} target="_blank" rel="noreferrer">
-                                  <img src={`http://localhost:8000${att.file_path}`} className="max-w-[280px] max-h-[220px] rounded-lg border border-white/10 object-cover hover:scale-[1.02] transition-transform shadow-lg" alt="attachment" />
-                                </a>
-                              ) : (
-                                <a href={`http://localhost:8000${att.file_path}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 px-4 py-2 bg-black/20 hover:bg-black/40 border border-white/5 hover:border-violet-500/50 rounded-lg text-sm text-zinc-300 transition-colors">
-                                  <Paperclip className="w-4 h-4" /> {att.file_path.split('/').pop()}
-                                </a>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      {(c.is_dm || c.is_saved) && (c.is_online || c.last_seen?.includes('second') || c.last_seen?.includes('just') || c.is_saved) && <div className="status-dot status-online"></div>}
                     </div>
-
-                    {isOwn && (
-                      <Avatar className="h-9 w-9 mt-1 flex-shrink-0">
-                        <AvatarFallback className="bg-violet-600 text-white text-sm">
-                          {msg.user?.name.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                    )}
+                    <div className="chat-item-content">
+                      <div className="chat-item-header">
+                        <span className="chat-item-name">{c.is_saved ? 'ME' : c.name}</span>
+                        <span className="chat-item-time">{timeString}</span>
+                      </div>
+                      <div className="chat-item-msg">
+                        {c.last_message?.content ? (
+                          c.last_message.content.includes('![Sticker]') ? 'Sent a Sticker' :
+                            c.last_message.content.includes('![GIF]') ? 'Sent a GIF' :
+                              c.last_message.content
+                        ) : (c.is_saved ? 'Personal drafts space.' : 'Start chatting now.')}
+                      </div>
+                    </div>
+                    {(!isActive && c.unread_count > 0) && <div className="unread-badge">{c.unread_count > 99 ? '99+' : c.unread_count}</div>}
                   </div>
                 );
-              })
-            )}
-            <div ref={messagesEndRef} className="h-4" />
-          </div>
-        </ScrollArea>
-
-        <div className="composer-area p-5 px-8 bg-black/30 border-t border-white/5">
-          {file && (
-            <div className="file-preview flex items-center justify-between p-3 px-4 bg-violet-900/20 border border-violet-500/30 rounded-t-xl text-sm text-zinc-200">
-              <span className="flex items-center gap-2">
-                <Paperclip className="w-4 h-4 text-violet-400" />
-                <span className="opacity-90">{file.name}</span>
-              </span>
-              <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-400 hover:text-white" onClick={() => setFile(null)}>
-                <X className="w-3 h-3" />
-              </Button>
+              })}
             </div>
-          )}
-          <form className={`flex flex-col gap-2 p-3 bg-black/40 border transition-all ${isNoPressure ? 'border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-white/10 focus-within:border-violet-500 focus-within:ring-1 focus-within:ring-violet-500'} ${file ? 'rounded-b-xl' : 'rounded-2xl'}`} onSubmit={sendMessage}>
+          </ScrollArea>
+        </div>
 
-            {/* Context Actions Row (Next Gen Features) */}
-            <div className="flex items-center justify-between px-1 mb-1 relative">
-              <div className="flex items-center gap-3">
-                {/* AI Tone Changer */}
-                <div className="relative">
-                  <Button type="button" variant="ghost" size="sm" className="h-7 text-xs px-2 gap-1.5 bg-violet-500/10 text-violet-400 hover:text-violet-300 hover:bg-violet-500/20 rounded-md border border-violet-500/20" onClick={() => setShowAiMenu(!showAiMenu)}>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Tone: {aiTone}
-                  </Button>
-
-                  {showAiMenu && (
-                    <div className="absolute bottom-8 left-0 mb-1 w-48 bg-zinc-900 border border-white/10 rounded-xl p-2 shadow-2xl z-50 flex flex-col gap-1">
-                      <div className="text-[10px] font-bold uppercase text-zinc-500 px-2 py-1 tracking-wider">AI Rewrite</div>
-                      {['Professional', 'Casual', 'Empathetic', 'Direct', 'Neutral'].map(tone => (
-                        <button key={tone} type="button" className={`text-left text-sm px-3 py-1.5 rounded-md transition-colors ${aiTone === tone ? 'text-violet-400 bg-violet-500/10 font-medium' : 'text-zinc-300 hover:bg-white/5'}`} onClick={() => { setAiTone(tone); setShowAiMenu(false); }}>
-                          {tone}
-                        </button>
-                      ))}
+        {/* Main Content Area */}
+        {!activeChannel ? (
+          <div className="flex-1 flex flex-col items-center justify-center bg-[#16161e]/80 shadow-[-10px_0_30px_rgba(0,0,0,0.5)] z-10 w-full relative overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 via-purple-500/5 to-pink-500/5 pointer-events-none"></div>
+            <div className="w-32 h-32 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 flex items-center justify-center shadow-[0_0_50px_rgba(168,85,247,0.3)] mb-8 animate-pulse">
+              <MessageSquare className="w-16 h-16 text-white" />
+            </div>
+            <h2 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-zinc-400 mb-4 text-center">Your Interconnected Space</h2>
+            <p className="text-zinc-500 text-[16px] max-w-md text-center">Select a conversation from the sidebar or search for a user to start networking instantly.</p>
+          </div>
+        ) : (
+          <>
+            {/* Chat Area */}
+            <div className="chat-area shadow-[-10px_0_30px_rgba(0,0,0,0.5)] z-10">
+              <div className="chat-header border-b border-white/[0.05]">
+                <div className="header-user-info">
+                  {(activeChannel?.is_dm || activeChannel?.is_saved) && (
+                    <Avatar
+                      className="w-10 h-10 shadow-md cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => setShowRightSidebar(!showRightSidebar)}
+                    >
+                      <AvatarImage src={(activeChannel?.is_saved ? user?.avatar : activeChannel.avatar) ? `http://localhost:8000${activeChannel?.is_saved ? user?.avatar : activeChannel.avatar}` : null} className="object-cover" />
+                      <AvatarFallback className="bg-zinc-700 font-bold text-white">{activeChannel?.is_saved ? 'ME' : activeChannel.name.charAt(0).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                  )}
+                  <div className="header-user-text">
+                    <div
+                      className="header-name cursor-pointer hover:text-zinc-200 transition-colors"
+                      onClick={() => setShowRightSidebar(!showRightSidebar)}
+                    >
+                      {activeChannel?.is_saved ? 'ME' : (activeChannel?.name || 'Channel')}
+                      {(activeChannel?.is_dm || activeChannel?.is_saved) && isOnline && <span className="status-dot-inline"></span>}
                     </div>
+                    {(activeChannel?.is_dm || activeChannel?.is_saved) && <div className="header-status">{rightProfileStatus}</div>}
+
+                    {/* Typing Indicator in Header */}
+                    {typingUsers[activeChannel?.id] && Object.keys(typingUsers[activeChannel.id]).length > 0 && (
+                      <div className="text-xs text-purple-400 font-medium italic mt-0.5 animate-pulse">
+                        {Object.values(typingUsers[activeChannel.id]).join(', ')} is typing...
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="header-actions">
+                  <User className="w-5 h-5 cursor-pointer hover:text-white transition-colors" onClick={() => setShowRightSidebar(!showRightSidebar)} />
+                </div>
+              </div>
+
+              <div className="messages-list">
+                {isLoading ? (
+                  <div className="m-auto flex flex-col items-center opacity-30 animate-pulse">
+                    <Loader2 className="w-8 h-8 animate-spin" />
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="m-auto flex flex-col items-center text-zinc-500 text-center max-w-sm">
+                    <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-6"><MessageSquare className="w-8 h-8 opacity-50" /></div>
+                    <h3 className="text-xl font-bold text-white/80 mb-2">No messages yet</h3>
+                    <p className="text-sm">Say hello and start the conversation.</p>
+                  </div>
+                ) : (
+                  messages.map((msg, index) => {
+                    const isOwn = msg.user?.id === user.id;
+                    const prevMsg = index > 0 ? messages[index - 1] : null;
+                    const nextMsg = index < messages.length - 1 ? messages[index + 1] : null;
+
+                    const isConsecutivePrev = prevMsg && prevMsg.user?.id === msg.user?.id;
+
+                    return (
+                      <div className={`msg-row ${isOwn ? 'own' : 'other'} ${isConsecutivePrev ? 'mt-[-10px]' : ''}`} key={msg.id}>
+                        {!isOwn && (
+                          <div className="msg-avatar">
+                            {!nextMsg || nextMsg.user?.id !== msg.user?.id ? (
+                              <Avatar className="w-full h-full rounded-full shadow-md">
+                                <AvatarImage src={msg.user?.avatar ? `http://localhost:8000${msg.user?.avatar}` : null} className="object-cover" />
+                                <AvatarFallback className="bg-zinc-700 font-bold text-xs">{msg.user?.name.charAt(0).toUpperCase()}</AvatarFallback>
+                              </Avatar>
+                            ) : <div className="w-full h-full"></div>}
+                          </div>
+                        )}
+
+                        <div className={`msg-content-wrapper flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
+                          <div className="msg-bubble">
+                            <div className="prose-chat text-white">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  p: ({ node, ...props }) => <span {...props} />,
+                                  a: ({ node, ...props }) => <a className="text-blue-400 hover:underline" {...props} />,
+                                  strong: ({ node, ...props }) => <strong className="font-bold text-white" {...props} />,
+                                  em: ({ node, ...props }) => <em className="italic" {...props} />,
+                                  code: ({ node, inline, ...props }) => inline ? <code className="bg-black/30 rounded px-1.5 py-0.5 font-mono text-sm" {...props} /> : <pre className="bg-black/30 p-2 rounded-md my-2 overflow-x-auto"><code className="font-mono text-sm" {...props} /></pre>,
+                                  img: ({ node, ...props }) => <img className="max-w-[200px] max-h-[200px] rounded-lg inline-block my-1" {...props} />
+                                }}
+                              >
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
+
+                            {msg.attachments && msg.attachments.length > 0 && (
+                              <div className="mt-3 overflow-hidden rounded-[8px]">
+                                {msg.attachments.map(att => (
+                                  att.file_type.startsWith('image/') ?
+                                    <img key={att.id} src={`http://localhost:8000${att.file_path}`} className="max-w-xs max-h-[200px] object-cover rounded-md cursor-pointer hover:opacity-80 transition-opacity" alt="attachment" onClick={() => setSelectedImage(`http://localhost:8000${att.file_path}`)} />
+                                    :
+                                    <a key={att.id} href={`http://localhost:8000${att.file_path}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-black/20 p-2 rounded-md hover:bg-black/30 text-sm">
+                                      <Paperclip className="w-4 h-4" /> {att.file_path.split('/').pop()}
+                                    </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <span className="msg-time flex flex-row items-center gap-1">
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {isOwn && (
+                              msg.read_by && msg.read_by.length > 0 ? <CheckCheck className="w-3 h-3 text-blue-400" /> : (msg.delivered_to && msg.delivered_to.length > 0 ? <CheckCheck className="w-3 h-3 text-zinc-400" /> : <Check className="w-3 h-3 text-zinc-400" />)
+                            )}
+                          </span>
+                        </div>
+
+                        {isOwn && (
+                          <div className="msg-avatar" style={{ marginRight: 0, marginLeft: 15 }}>
+                            {!nextMsg || nextMsg.user?.id !== msg.user?.id ? (
+                              <Avatar className="w-full h-full rounded-full shadow-md">
+                                <AvatarImage src={user.avatar ? `http://localhost:8000${user.avatar}` : null} className="object-cover" />
+                                <AvatarFallback className="bg-zinc-700 font-bold text-xs">{user.name.charAt(0).toUpperCase()}</AvatarFallback>
+                              </Avatar>
+                            ) : <div className="w-full h-full"></div>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={messagesEndRef} className="h-2" />
+              </div>
+
+              <div className="chat-input-area">
+                {file && (
+                  <div className="flex items-center justify-between px-3 py-2 bg-white/10 rounded-t-lg text-sm text-white border border-white/10 border-b-0">
+                    <span className="flex items-center gap-2"><Paperclip className="w-4 h-4" /> {file.name}</span>
+                    <X className="w-4 h-4 cursor-pointer hover:text-red-400" onClick={() => setFile(null)} />
+                  </div>
+                )}
+                <form className={`chat-input-wrap ${file ? 'rounded-tl-none rounded-tr-none' : ''}`} onSubmit={sendMessage}>
+                  <input type="file" id="fileInput" className="hidden" onChange={e => setFile(e.target.files[0])} />
+
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Smile className="w-5 h-5 ml-4 cursor-pointer text-zinc-400 hover:text-white transition-colors shrink-0" />
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0 border-white/5 bg-[#16161e] mb-2 shadow-2xl" side="top" align="start">
+                      <EmojiPicker theme="dark" onEmojiClick={(e) => setMsgContent(prev => prev + e.emoji)} />
+                    </PopoverContent>
+                  </Popover>
+
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <ImageIcon className="w-5 h-5 ml-2 cursor-pointer text-zinc-400 hover:text-white transition-colors shrink-0" />
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[300px] p-2 border-white/5 bg-[#16161e] mb-2 shadow-2xl" side="top" align="start">
+                      <input type="text" placeholder="Search GIFs..." value={gifSearch} onChange={e => setGifSearch(e.target.value)} className="w-full bg-[#1e1e24] border-white/5 focus:border-purple-500 rounded-lg h-9 px-3 text-sm text-white mb-2 font-medium placeholder:text-zinc-600" />
+                      <ScrollArea className="h-[250px] w-full pr-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          {gifResults.map(g => (
+                            <img key={g.id} src={g.media[0].tinygif.url} className="w-full h-[100px] object-cover rounded-md cursor-pointer hover:opacity-80 transition-all" onClick={() => { sendMessage(null, ` ![GIF](${g.media[0].tinygif.url}) `); document.dispatchEvent(new KeyboardEvent('keydown', { 'key': 'Escape' })); }} />
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    </PopoverContent>
+                  </Popover>
+
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Gift className="w-5 h-5 mx-2 cursor-pointer text-zinc-400 hover:text-white transition-colors shrink-0" />
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[280px] p-3 border-white/5 bg-[#16161e] mb-2 shadow-2xl" side="top" align="start">
+                      <div className="text-xs font-bold text-zinc-400 mb-3 uppercase tracking-wider">Stickers</div>
+                      <div className="grid grid-cols-3 gap-3">
+                        {STICKERS.map((s, i) => (
+                          <img key={i} src={s} className="w-full aspect-square object-contain bg-white/5 rounded-xl cursor-pointer hover:bg-white/10 p-2 transition-all hover:scale-105" onClick={() => { sendMessage(null, ` ![Sticker](${s}) `); document.dispatchEvent(new KeyboardEvent('keydown', { 'key': 'Escape' })); }} />
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  <input
+                    type="text"
+                    className="flex-1 bg-transparent border-none text-white focus:outline-none placeholder:text-zinc-500 min-w-0"
+                    placeholder="Type a message... (Use **bold**, *italic*, `code`)"
+                    value={msgContent}
+                    onChange={e => handleTyping(e.target.value)}
+                  />
+                  <Sparkles className="send-btn w-5 h-5 mx-2 text-purple-400 hover:text-purple-300 shrink-0" onClick={() => setShowAiDialog(true)} />
+                  <Paperclip className="send-btn w-5 h-5 mr-3 shrink-0" onClick={() => document.getElementById('fileInput').click()} />
+                  <button type="submit" className="bg-transparent border-none p-0 focus:outline-none shrink-0" disabled={!msgContent.trim() && !file}>
+                    <Send className={`w-5 h-5 ${(!msgContent.trim() && !file) ? 'opacity-30' : 'text-white'}`} />
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Right Sidebar */}
+            {showRightSidebar && (
+              <div className="right-sidebar shadow-[-10px_0_30px_rgba(0,0,0,0.3)] z-20 relative animate-in slide-in-from-right-8 duration-300">
+                <div className="absolute top-4 right-4 flex">
+                  <span className="cursor-pointer hover:text-red-400 transition-colors text-[16px] text-zinc-500 font-bold" onClick={() => setShowRightSidebar(false)}>X</span>
+                </div>
+
+                <div className="profile-avatar-large mt-4 bg-zinc-800 flex items-center justify-center overflow-hidden">
+                  {rightProfileAvatar ? (
+                    <img src={rightProfileAvatar} alt="Profile" className="w-full h-full object-cover" />
+                  ) : activeChannel?.is_saved ? (
+                    <Bookmark className="w-10 h-10 text-cyan-400 absolute z-[2]" />
+                  ) : activeChannel?.is_group ? (
+                    <Hash className="w-10 h-10 text-purple-400 absolute z-[2]" />
+                  ) : (
+                    <span className="text-3xl font-bold text-white absolute z-[2]">{rightProfileName.charAt(0).toUpperCase()}</span>
                   )}
                 </div>
 
-                {/* Anxiety-Free Delivery */}
-                <button type="button" onClick={() => setIsNoPressure(!isNoPressure)} className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-all border ${isNoPressure ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-transparent text-zinc-500 border-transparent hover:bg-white/5 hover:text-zinc-300'}`}>
-                  <Coffee className="w-3.5 h-3.5" />
-                  No-Pressure Delivery
-                </button>
+                <h3 className="profile-name truncate max-w-full px-4 text-center">{rightProfileName}</h3>
+                <span className={`profile-status ${isOnline ? 'text-cyan-400' : 'text-zinc-500'}`}>{rightProfileStatus}</span>
+
+                <Tabs defaultValue="images" className="flex-1 w-full mt-2 mx-[-10px] px-[10px] flex flex-col min-h-0">
+                  <TabsList className="grid w-full grid-cols-2 bg-black/20 text-zinc-400 mb-2 rounded-xl h-10 border border-white/5">
+                    <TabsTrigger value="images" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-500 data-[state=active]:to-purple-500 data-[state=active]:text-white rounded-lg">Images ({allImages.length})</TabsTrigger>
+                    <TabsTrigger value="files" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white rounded-lg">Files ({allFiles.length})</TabsTrigger>
+                  </TabsList>
+
+                  <ScrollArea className="flex-1 w-full mx-[-10px] px-[10px] overflow-auto">
+                    <TabsContent value="images" className="m-0 focus:outline-none pt-2">
+                      <div className="attachment-grid pb-10">
+                        {allImages.map(att => (
+                          <img key={att.id} src={`http://localhost:8000${att.file_path}`} alt="att" onClick={() => setSelectedImage(`http://localhost:8000${att.file_path}`)} className="cursor-pointer hover:opacity-80 transition-opacity" />
+                        ))}
+                        {allImages.length === 0 && (
+                          <div className="col-span-3 text-center text-xs text-zinc-500 py-10">No images yet.</div>
+                        )}
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="files" className="m-0 focus:outline-none pt-2">
+                      <div className="flex flex-col gap-2 pb-10 w-full">
+                        {allFiles.map(att => (
+                          <a key={att.id} href={`http://localhost:8000${att.file_path}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-white/5 hover:bg-white/10 p-3 rounded-lg transition-colors text-sm text-zinc-300 w-full overflow-hidden border border-white/5">
+                            <Paperclip className="w-4 h-4 text-pink-400 shrink-0" />
+                            <span className="truncate">{att.file_path.split('/').pop()}</span>
+                          </a>
+                        ))}
+                        {allFiles.length === 0 && (
+                          <div className="text-center text-xs text-zinc-500 py-10">No files yet.</div>
+                        )}
+                      </div>
+                    </TabsContent>
+                  </ScrollArea>
+                </Tabs>
               </div>
-            </div>
+            )}
+          </>
+        )}
 
-            <div className="flex items-end gap-2 w-full">
-              <input
-                type="file"
-                id="fileInput"
-                className="hidden"
-                onChange={e => setFile(e.target.files[0])}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={`shrink-0 h-11 w-11 rounded-xl transition-colors ${isNoPressure ? 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10' : 'text-zinc-400 hover:text-white hover:bg-white/10'}`}
-                onClick={() => document.getElementById('fileInput').click()}
-                title="Attach File"
-              >
-                <Paperclip className="w-5 h-5" />
-              </Button>
+      </div>
 
-              <Input
-                type="text"
-                className="flex-1 bg-transparent border-none text-zinc-100 shadow-none focus-visible:ring-0 placeholder:text-zinc-500 placeholder:italic text-[15px] h-11 px-2"
-                placeholder={isNoPressure ? "Take your time... this message will be delivered silently." : `Message #${activeChannel?.name || 'channel'}...`}
-                value={msgContent}
-                onChange={e => setMsgContent(e.target.value)}
-              />
-
-              <Button
-                type="submit"
-                size="icon"
-                className={`shrink-0 h-11 w-11 rounded-xl shadow-lg disabled:opacity-50 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none transition-all ${isNoPressure ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/25 text-white' : 'bg-violet-600 hover:bg-violet-500 shadow-violet-500/25 text-white'}`}
-                disabled={!msgContent.trim() && !file}
-              >
-                <Send className="w-5 h-5 ml-0.5" />
-              </Button>
-            </div>
-          </form>
+      {selectedImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm transition-opacity" onClick={() => setSelectedImage(null)}>
+          <div className="absolute top-6 right-6 p-2 bg-white/10 hover:bg-white/20 rounded-full cursor-pointer text-white transition-all">
+            <X className="w-8 h-8" />
+          </div>
+          <img src={selectedImage} alt="Fullscreen Attachment" className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()} />
         </div>
-      </main>
-    </div>
+      )}
+
+      <Dialog open={showAiDialog} onOpenChange={setShowAiDialog}>
+        <DialogContent className="bg-[#16161a] border-white/10 text-white sm:max-w-[500px] rounded-2xl shadow-2xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-400" /> AI Message Assistant
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Describe what you want to say, and the AI will draft a professional message for you to review before sending.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAiGenerate} className="space-y-4 mt-4">
+            <textarea
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              placeholder="e.g., Ask the team for an update on the Q3 marketing report..."
+              className="w-full bg-[#1e1e24] border border-white/5 rounded-xl text-white p-4 h-32 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none"
+              required
+            />
+            <Button type="submit" disabled={isGenerating || !aiPrompt.trim()} className="w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 text-white font-bold h-12 rounded-xl border-none">
+              {isGenerating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Drafting Message...</> : 'Draft Message'}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

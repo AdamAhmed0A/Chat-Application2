@@ -6,19 +6,21 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 
 class AuthController extends Controller
 {
     public function register(Request $request)
     {
         $request->validate([
-            'name' => 'required|string|max:255|unique:users',
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
         ]);
 
         $user = User::create([
             'name' => $request->name,
-            'email' => $request->name . '@nexus.local', // placeholder since we don't strictly ask for email
+            'email' => $request->email,
             'password' => Hash::make($request->password),
         ]);
 
@@ -34,11 +36,11 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $request->validate([
-            'name' => 'required|string',
+            'email' => 'required|email',
             'password' => 'required|string',
         ]);
 
-        $user = User::where('name', $request->name)->first();
+        $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
@@ -53,6 +55,31 @@ class AuthController extends Controller
             'status' => 'success',
             'user' => $user,
             'token' => $token
+        ]);
+    }
+
+    public function forgotPassword(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'new_password' => 'required|string|min:6',
+        ]);
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Email not found.'
+            ], 404);
+        }
+
+        $user->password = Hash::make($request->new_password);
+        $user->save();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Password reset successfully. You can now login.'
         ]);
     }
 
@@ -71,6 +98,7 @@ class AuthController extends Controller
         $request->validate([
             'name' => 'nullable|string|max:255|unique:users,name,' . $user->id,
             'status_message' => 'nullable|string|max:255',
+            'avatar' => 'nullable|image|mimes:jpeg,png,jpg|max:2048' // Only specific extensions
         ]);
 
         if ($request->has('name')) {
@@ -79,6 +107,18 @@ class AuthController extends Controller
 
         if ($request->has('status_message')) {
             $user->status_message = $request->status_message;
+        }
+
+        if ($request->hasFile('avatar')) {
+            // Delete old avatar if exists
+            if ($user->avatar) {
+                // Remove /storage/ prefix for deletion
+                $oldPath = str_replace('/storage/', '', $user->avatar);
+                Storage::disk('public')->delete($oldPath);
+            }
+
+            $path = $request->file('avatar')->store('avatars', 'public');
+            $user->avatar = Storage::url($path);
         }
 
         $user->save();
@@ -95,6 +135,21 @@ class AuthController extends Controller
 
         return response()->json([
             'status' => 'success'
+        ]);
+    }
+
+    public function updatePresence(Request $request)
+    {
+        $request->validate(['presence_status' => 'required|in:online,idle,offline']);
+        $user = $request->user();
+        $user->presence_status = $request->presence_status;
+        $user->save();
+
+        broadcast(new \App\Events\UserStatusChanged($user->id, $request->presence_status))->toOthers();
+
+        return response()->json([
+            'status' => 'success',
+            'user' => $user
         ]);
     }
 }
